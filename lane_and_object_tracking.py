@@ -1,7 +1,10 @@
 import cv2
 import numpy as np
+from deep_sort_realtime.deepsort_tracker import DeepSort
+from ultralytics import YOLO
 
-
+deepSort = DeepSort()
+model = YOLO('yolo11n.pt')
 
 def roi_points(height, width):
     bl = (int(width*0.15), int(height*0.9))
@@ -44,7 +47,27 @@ def line_preprocessing(mask, pts1, pts2):
     m = cv2.getPerspectiveTransform(pts2, pts1)
     return lines, m
 
-video_path = 'video/video_name'
+def object_tracking(frame):
+    detections = []
+    labels = []
+    results = model(frame)
+    classes = results[0].names
+    for result in results:
+        for box in result.boxes:
+            confidence = float(box.conf[0])
+            label = int(box.cls[0])
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            labels.append(label)
+            detections.append([[x1, y1, x2-x1, y2-y1], confidence, label])
+    tracks = deepSort.update_tracks(detections, frame = frame)
+
+    for label, track in zip(labels,tracks):
+        x, y, w, h = track.to_tlwh()
+
+        cv2.rectangle(frame, (int(x),int(y)), (int(x+w), int(y+h)), (255, 0, 0), 2)
+        cv2.putText(frame, classes[label], (int(x), int(y)-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+video_path = 'video/project_video.mp4'
 capture = cv2.VideoCapture(video_path)
 while capture.isOpened():
     ret, frame = capture.read()
@@ -64,8 +87,10 @@ while capture.isOpened():
         x2o, y2o = original_pts[1][0]
         cv2.line(frame, (int(x1o), int(y1o)), (int(x2o), int(y2o)), (0, 255, 0), 3)
 
+    object_tracking(frame)
+
     cv2.imshow('result', frame)
-    if cv2.waitKey(40) & 0xFF == ord('q'):
+    if cv2.waitKey(20) & 0xFF == ord('q'):
         break
 
 capture.release()
